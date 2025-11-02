@@ -1,0 +1,729 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { 
+    getFirestore, 
+    doc, 
+    onSnapshot, 
+    setDoc, 
+    serverTimestamp,
+    updateDoc
+} from 'firebase/firestore';
+import { Zap, TrendingUp, Shield, Layers, AlertTriangle, Scale, ClipboardCheck, Globe } from 'lucide-react';
+
+// --- Global Variables (Provided by Canvas Environment) ---
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+// Initialize Firebase App
+let app, auth, db;
+try {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+} catch (e) {
+    console.error("Firebase initialization failed:", e);
+}
+
+// --- Project Data Structure (Initial State) ---
+const PROJECT_ID = "snappfood_pricing_engine";
+// NOTE: KPI goals and task names are replaced with generic keys for dynamic translation lookup.
+const INITIAL_PROJECT_DATA = {
+    title: "Strategic Pricing & Menu Recommendation Engine (B2B SaaS)",
+    kpis: {
+        primary: { key: "kpi_churn_goal", status: "On Track" },
+        secondary: { key: "kpi_value_goal", status: "In Progress" }
+    },
+    strategicAlignment: 9, // Score out of 10
+    riskProfile: 'Medium', // High, Medium, Low
+    phases: [
+        { key: "phase1", status: "Completed", task_keys: ["task_research", "task_interviews", "task_user_stories"] },
+        { key: "phase2", status: "In Progress", task_keys: ["task_ai_model", "task_powerbi", "task_training"] },
+        { key: "phase3", status: "Pending", task_keys: ["task_beta", "task_okr", "task_gmt"] }
+    ],
+    lastUpdated: serverTimestamp()
+};
+
+// --- Multi-language Translations (English, Persian/fa, Arabic/ar) ---
+const translations = {
+    en: {
+        // General
+        title: "Strategic Pricing & Menu Recommendation Engine (B2B SaaS)",
+        summary: "Led the end-to-end design and execution of a B2B SaaS module for optimal pricing and menu recommendations, targeting a critical reduction in restaurant churn and growth in LTV for platform partners.",
+        appId: "App ID",
+        userId: "User ID",
+        // Scorecard
+        scorecardTitle: "Risk-Adjusted Strategic Priority",
+        baseAlignmentLabel: "Base Strategic Alignment Score (1-10)",
+        riskProfileLabel: "Implementation Risk Profile",
+        low: "Low",
+        medium: "Medium",
+        high: "High",
+        baseScore: "Base Alignment Score",
+        riskModifier: "Risk Modifier",
+        finalScore: "Final Score (1-10)",
+        scoreBreakdown: "Score Breakdown",
+        p0: "P0: Critical Investment",
+        p1: "P1: High Priority / Q-Focus",
+        p2: "P2: Standard Priority / Backlog",
+        p3: "P3: Low Priority / Archive",
+        // Value Estimator
+        estimatorTitle: "Simulated Total B2B Value (ROI)",
+        partnersAffected: "Partners Affected (Count)",
+        currentMargin: "Current Profit Margin (%)",
+        ordersPerDay: "Orders per Day (Avg Partner)",
+        avgOrderValue: "Avg Order Value ($)",
+        totalPartnersModeled: "Total Partners Modeled",
+        annualProfitIncrease: "Annual Profit Increase (Total Est.)",
+        simulatedRoi: "Simulated Total ROI",
+        newDailyOrders: "New Daily Orders (Avg Partner Est.)",
+        assumptions: "* Assumptions: +3% margin & +10% order conversion per partner.",
+        // KPIs
+        kpiTitle: "Key Performance Indicators (KPIs)",
+        primaryKpi: "Primary KPI (B2B Churn)",
+        secondaryKpi: "Secondary KPI (Value Delivery)",
+        kpi_churn_goal: "5% reduction in Partner Churn Rate",
+        kpi_value_goal: "20% average increase in high-demand items featured",
+        // Phases
+        roadmapTitle: "Execution Roadmap & Status",
+        keyTasks: "Key Tasks & Deliverables:",
+        phase1: "Phase 1: Product Discovery & Requirements Gathering (4 Weeks)",
+        phase2: "Phase 2: Model Development & Monitoring Tools (6 Weeks)",
+        phase3: "Phase 3: Implementation & Growth Strategy (2 Months)",
+        // Phase Tasks
+        task_research: "Market Research",
+        task_interviews: "Stakeholder Interviews",
+        task_user_stories: "Draft User Stories",
+        task_ai_model: "AI Modeling Coordination",
+        task_powerbi: "Internal PowerBI Dashboard",
+        task_training: "Training & Onboarding Content",
+        task_beta: "Controlled Beta Rollout",
+        task_okr: "Results Analysis (OKR Tracking)",
+        task_gmt: "Go-to-Market Strategy",
+        // Statuses
+        status: "Status",
+        pending: "Pending",
+        inProgress: "In Progress",
+        completed: "Completed",
+        onTrack: "On Track",
+        // Footer
+        footer: "Strategic Project Tracker (v2.2) by NEURO CRAFT.",
+    },
+    fa: {
+        // General (Simplified)
+        title: "سیستم توصیه قیمت و منو (SaaS B2B)",
+        summary: "ساخت و اجرای کامل بخش نرم‌افزار B2B برای قیمت‌گذاری بهتر و توصیه‌های منو، با هدف کم کردن ریزش رستوران‌ها و افزایش سودآوری شرکا.",
+        appId: "شناسه برنامه",
+        userId: "شناسه کاربر",
+        // Scorecard (Simplified)
+        scorecardTitle: "اولویت‌بندی استراتژیک (با در نظر گرفتن ریسک)",
+        baseAlignmentLabel: "امتیاز هماهنگی با استراتژی اصلی (۱-۱۰)",
+        riskProfileLabel: "سطح ریسک اجرا",
+        low: "پایین",
+        medium: "متوسط",
+        high: "بالا",
+        baseScore: "امتیاز هماهنگی پایه",
+        riskModifier: "عامل تغییر ریسک",
+        finalScore: "امتیاز نهایی",
+        scoreBreakdown: "جزئیات امتیاز",
+        p0: "P0: سرمایه‌گذاری حیاتی",
+        p1: "P1: اولویت بالا / تمرکز این فصل",
+        p2: "P2: اولویت متوسط / برای بعد",
+        p3: "P3: اولویت پایین / آرشیو",
+        // Value Estimator (Simplified)
+        estimatorTitle: "تخمین کل ارزش B2B (بازده سرمایه)",
+        partnersAffected: "شرکای تحت تاثیر (تعداد)",
+        currentMargin: "حاشیه سود فعلی (٪)",
+        ordersPerDay: "سفارش در روز (متوسط شریک)",
+        avgOrderValue: "متوسط ارزش سفارش ($)",
+        totalPartnersModeled: "کل شرکای مدل شده",
+        annualProfitIncrease: "افزایش سود سالانه",
+        simulatedRoi: "بازده سرمایه کل تخمین زده شده",
+        newDailyOrders: "سفارشات روزانه جدید (تخمین متوسط شریک)",
+        assumptions: "* فرض‌ها: ۳٪+ حاشیه سود و ۱۰٪+ سفارش بیشتر برای هر شریک.",
+        // KPIs (Simplified)
+        kpiTitle: "شاخص‌های کلیدی عملکرد (KPI)",
+        primaryKpi: "KPI اصلی (ریزش شرکای تجاری)",
+        secondaryKpi: "KPI دوم (ارائه ارزش)",
+        kpi_churn_goal: "کاهش ۵٪ در نرخ ریزش شرکا",
+        kpi_value_goal: "افزایش میانگین ۲۰٪ در آیتم‌های پرتقاضا در منو",
+        // Phases
+        roadmapTitle: "نقشه راه اجرا و وضعیت",
+        keyTasks: "وظایف و دستاوردهای کلیدی:",
+        phase1: "فاز ۱: شناخت محصول و جمع‌آوری نیازها (۴ هفته)",
+        phase2: "فاز ۲: توسعه مدل و ابزارهای نظارتی (۶ هفته)",
+        phase3: "فاز ۳: پیاده‌سازی و استراتژی رشد (۲ ماه)",
+        // Phase Tasks (NEW TRANSLATIONS)
+        task_research: "تحقیقات بازار",
+        task_interviews: "مصاحبه با ذی‌نفعان",
+        task_user_stories: "نوشتن داستان‌های کاربر",
+        task_ai_model: "هماهنگی مدل‌سازی هوش مصنوعی",
+        task_powerbi: "ساخت داشبورد داخلی PowerBI",
+        task_training: "آموزش و تولید محتوای توجیهی",
+        task_beta: "اجرای آزمایشی کنترل‌شده (بتا)",
+        task_okr: "تحلیل نتایج (پیگیری OKR)",
+        task_gmt: "استراتژی ورود به بازار (Go-to-Market)",
+        // Statuses (Simplified)
+        status: "وضعیت",
+        pending: "در انتظار شروع",
+        inProgress: "در حال پیشرفت",
+        completed: "تکمیل شده",
+        onTrack: "خوب پیش می‌رود",
+        // Footer
+        footer: "ردیاب پروژه استراتژیک (نسخه ۲.۲) توسط NEURO CRAFT.",
+    },
+    ar: {
+        // General
+        title: "محرك التسعير الاستراتيجي وتوصيات القائمة (B2B SaaS)",
+        summary: "قيادة التصميم والتنفيذ الشامل لوحدة SaaS B2B للتسعير الأمثل وتوصيات القائمة، بهدف تحقيق خفض حاسم في معدل تذبذب المطاعم ونمو القيمة الدائمة للشركاء.",
+        appId: "معرّف التطبيق",
+        userId: "معرّف المستخدم",
+        // Scorecard
+        scorecardTitle: "الأولوية الاستراتيجية المعدلة حسب المخاطر",
+        baseAlignmentLabel: "درجة التوافق الاستراتيجي الأساسي (1-10)",
+        riskProfileLabel: "ملف تعريف مخاطر التنفيذ",
+        low: "منخفض",
+        medium: "متوسط",
+        high: "مرتفع",
+        baseScore: "درجة التوافق الأساسية",
+        riskModifier: "معدّل المخاطر",
+        finalScore: "الدرجة النهائية (1-10)",
+        scoreBreakdown: "تحليل الدرجات",
+        p0: "P0: استثمار حاسم",
+        p1: "P1: أولوية عالية / تركيز فصلي",
+        p2: "P2: أولوية قياسية / قائمة مهام مؤجلة",
+        p3: "P3: أولوية منخفضة / أرشيف",
+        // Value Estimator
+        estimatorTitle: "القيمة الإجمالية المحاكاة لـ B2B (العائد على الاستثمار)",
+        partnersAffected: "الشركاء المتأثرون (العدد)",
+        currentMargin: "هامش الربح الحالي (٪)",
+        ordersPerDay: "الطلبات في اليوم (متوسط الشريك)",
+        avgOrderValue: "متوسط قيمة الطلب ($)",
+        totalPartnersModeled: "إجمالي الشركاء الذين تم نمذجتهم",
+        annualProfitIncrease: "الزيادة السنوية في الأرباح (التقدير الإجمالي)",
+        simulatedRoi: "إجمالي العائد على الاستثمار المحاكى",
+        newDailyOrders: "الطلبات اليومية الجديدة (متوسط تقدير الشريك)",
+        assumptions: "* الافتراضات: +3% هامش و +10% زيادة في تحويل الطلبات لكل شريك.",
+        // KPIs
+        kpiTitle: "مؤشرات الأداء الرئيسية (KPIs)",
+        primaryKpi: "مؤشر الأداء الرئيسي الأولي (تذبذب B2B)",
+        secondaryKpi: "مؤشر الأداء الرئيسي الثانوي (تسليم القيمة)",
+        kpi_churn_goal: "خفض 5% في معدل تذبذب الشركاء",
+        kpi_value_goal: "زيادة متوسط 20% في العناصر عالية الطلب المعروضة",
+        // Phases (NEW TRANSLATIONS)
+        roadmapTitle: "خطة التنفيذ والحالة",
+        keyTasks: "المهام والمخرجات الرئيسية:",
+        phase1: "المرحلة 1: اكتشاف المنتج وجمع المتطلبات (4 أسابيع)",
+        phase2: "المرحلة 2: تطوير النموذج وأدوات المراقبة (6 أسابيع)",
+        phase3: "المرحلة 3: التنفيذ واستراتيجية النمو (شهران)",
+        // Phase Tasks
+        task_research: "أبحاث السوق",
+        task_interviews: "مقابلات أصحاب المصلحة",
+        task_user_stories: "صياغة قصص المستخدم",
+        task_ai_model: "تنسيق نمذجة الذكاء الاصطناعي",
+        task_powerbi: "لوحة معلومات PowerBI الداخلية",
+        task_training: "محتوى التدريب والتأهيل",
+        task_beta: "الإطلاق التجريبي الخاضع للرقابة (بيتا)",
+        task_okr: "تحليل النتائج (تتبع OKR)",
+        task_gmt: "استراتيجية الانطلاق في السوق",
+        // Statuses
+        status: "الحالة",
+        pending: "قيد الانتظار",
+        inProgress: "قيد التقدم",
+        completed: "مكتمل",
+        onTrack: "على المسار الصحيح",
+        // Footer
+        footer: "متتبع المشاريع الاستراتيجية (الإصدار ۲.۲) بواسطة NEURO CRAFT.",
+    },
+};
+
+// --- Value Estimator Component ---
+const ValueEstimator = ({ updateProjectData, t }) => {
+    const [currentMargin, setCurrentMargin] = useState(15);
+    const [ordersPerDay, setOrdersPerDay] = useState(100);
+    const [avgOrderValue, setAvgOrderValue] = useState(15);
+    const [numPartners, setNumPartners] = useState(50);
+
+    const estimatedMarginIncrease = 3;
+    const estimatedConversionIncrease = 10;
+
+    const calculateValue = () => {
+        const initialOrdersPerPartner = ordersPerDay;
+        const initialProfitPerPartner = (initialOrdersPerPartner * avgOrderValue) * (currentMargin / 100);
+
+        const newMargin = currentMargin + estimatedMarginIncrease;
+        const newOrdersPerPartner = initialOrdersPerPartner * (1 + (estimatedConversionIncrease / 100));
+        const newProfitPerPartner = (newOrdersPerPartner * avgOrderValue) * (newMargin / 100);
+        
+        const annualInitialProfitPerPartner = initialProfitPerPartner * 365;
+        const annualNewProfitPerPartner = newProfitPerPartner * 365;
+
+        const annualProfitIncreasePerPartner = annualNewProfitPerPartner - annualInitialProfitPerPartner;
+        
+        const totalAnnualProfitIncrease = annualProfitIncreasePerPartner * numPartners;
+        const totalAnnualInitialProfit = annualInitialProfitPerPartner * numPartners;
+
+        const roi = (totalAnnualProfitIncrease / totalAnnualInitialProfit) * 100;
+
+        return {
+            annualProfitIncrease: totalAnnualProfitIncrease.toFixed(0),
+            newMargin: newMargin.toFixed(2),
+            newOrdersPerPartner: newOrdersPerPartner.toFixed(0),
+            totalPartners: numPartners,
+            roi: roi.toFixed(1)
+        };
+    };
+
+    const value = calculateValue();
+    
+    return (
+        <div className="bg-orange-950/40 p-6 rounded-xl border-t-4 border-orange-500 shadow-xl">
+            <h3 className="text-2xl font-bold mb-5 text-orange-400 border-b border-orange-900 pb-2 flex items-center">
+                <TrendingUp className="w-6 h-6 mr-3 text-orange-500 rtl:ml-3 rtl:mr-0" />
+                {t('estimatorTitle')}
+            </h3>
+            
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">{t('partnersAffected')}</label>
+                    <input
+                        type="number"
+                        value={numPartners}
+                        onChange={(e) => setNumPartners(Math.max(1, parseInt(e.target.value) || 0))}
+                        min="1"
+                        className="w-full p-2 bg-gray-900 rounded-lg text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">{t('currentMargin')}</label>
+                    <input
+                        type="number"
+                        value={currentMargin}
+                        onChange={(e) => setCurrentMargin(Math.max(1, parseFloat(e.target.value) || 0))}
+                        min="1"
+                        className="w-full p-2 bg-gray-900 rounded-lg text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">{t('ordersPerDay')}</label>
+                    <input
+                        type="number"
+                        value={ordersPerDay}
+                        onChange={(e) => setOrdersPerDay(Math.max(1, parseInt(e.target.value) || 0))}
+                        min="1"
+                        className="w-full p-2 bg-gray-900 rounded-lg text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">{t('avgOrderValue')}</label>
+                    <input
+                        type="number"
+                        value={avgOrderValue}
+                        onChange={(e) => setAvgOrderValue(Math.max(1, parseFloat(e.target.value) || 0))}
+                        min="1"
+                        step="0.01"
+                        className="w-full p-2 bg-gray-900 rounded-lg text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-orange-900">
+                <ResultCard label={t('totalPartnersModeled')} value={value.totalPartners} color="bg-red-700" />
+                <ResultCard label={t('annualProfitIncrease')} value={`$${value.annualProfitIncrease}`} color="bg-green-700" isValue={true} />
+                <ResultCard label={t('simulatedRoi')} value={`${value.roi}%`} color="bg-amber-600" />
+                <ResultCard label={t('newDailyOrders')} value={value.newOrdersPerPartner} color="bg-orange-700" />
+            </div>
+            <p className="text-xs text-gray-400 mt-4 italic">
+                {t('assumptions')}
+            </p>
+        </div>
+    );
+};
+
+const ResultCard = ({ label, value, color, isValue = false }) => (
+    <div className={`p-4 rounded-xl text-center ${color} shadow-lg transition-transform transform hover:scale-[1.02] duration-150`}>
+        <p className="text-xs font-semibold uppercase text-gray-100 opacity-80">{label}</p>
+        <p className={`text-2xl font-extrabold text-white mt-1 ${isValue ? 'text-shadow-lg' : ''}`}>{value}</p>
+    </div>
+);
+
+
+// --- Main Application Component ---
+const App = () => {
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    const [projectData, setProjectData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [lang, setLang] = useState('en'); // Default language is English
+
+    // Translation helper hook
+    const t = useCallback((key) => translations[lang][key] || translations['en'][key] || key, [lang]);
+    
+    const isRtl = lang === 'fa' || lang === 'ar';
+    const direction = isRtl ? 'rtl' : 'ltr';
+
+    // --- Authentication & Initialization ---
+    useEffect(() => {
+        if (!auth) return;
+
+        // Function to handle Firebase sign-in with backoff retry
+        const handleAuth = async () => {
+            const MAX_RETRIES = 5; 
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    return; 
+                } catch (error) {
+                    if (attempt === MAX_RETRIES) {
+                        console.error("CRITICAL: All authentication retries failed due to network issues. Final Error:", error.message);
+                        break; 
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                }
+            }
+        };
+
+        const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+            if (user) {
+                setUserId(user.uid);
+            } else {
+                setUserId(crypto.randomUUID()); 
+            }
+            setIsAuthReady(true);
+        });
+
+        handleAuth();
+        
+        return () => unsubscribeAuth();
+    }, []);
+
+    // --- Real-time Project Data Fetching & Initialization ---
+    useEffect(() => {
+        if (!isAuthReady || !db) return;
+
+        const projectDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'saas_tracker', PROJECT_ID);
+        
+        const unsubscribe = onSnapshot(projectDocRef, async (docSnap) => {
+            if (docSnap.exists()) {
+                setProjectData(docSnap.data());
+            } else {
+                // IMPORTANT: Use the structure with 'key' for phases when initializing
+                await setDoc(projectDocRef, { ...INITIAL_PROJECT_DATA, ownerId: userId, createdAt: serverTimestamp() });
+                setProjectData(INITIAL_PROJECT_DATA);
+            }
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching project data:", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [isAuthReady, db, appId, userId]);
+
+
+    // Function to update phase status
+    const updatePhaseStatus = useCallback(async (phaseIndex, newStatus) => {
+        if (!db || !projectData) return;
+        
+        try {
+            const projectDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'saas_tracker', PROJECT_ID);
+            
+            const updatedPhases = projectData.phases.map((phase, index) => 
+                index === phaseIndex ? { ...phase, status: newStatus } : phase
+            );
+
+            await updateDoc(projectDocRef, { phases: updatedPhases, lastUpdated: serverTimestamp() });
+        } catch (e) {
+            console.error("Error updating phase status: ", e);
+        }
+    }, [db, appId, projectData]);
+
+    // Function to update top-level project data (for risk/alignment)
+    const updateProjectDataField = useCallback(async (field, value) => {
+        if (!db || !projectData) return;
+        
+        try {
+            const projectDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'saas_tracker', PROJECT_ID);
+            
+            await updateDoc(projectDocRef, { [field]: value, lastUpdated: serverTimestamp() });
+        } catch (e) {
+            console.error(`Error updating project field ${field}: `, e);
+        }
+    }, [db, appId, projectData]);
+
+
+    // Helper for status colors (kept green for 'Completed' status for universal meaning)
+    const getStatusColor = (status) => {
+        switch (status) {
+            case 'Completed': return 'bg-green-600 hover:bg-green-700';
+            case 'In Progress': return 'bg-amber-600 hover:bg-amber-700';
+            default: return 'bg-gray-500 hover:bg-gray-600';
+        }
+    };
+    
+    // Helper to get risk styles and the penalty value (Warm color scheme)
+    const getRiskStyles = (risk) => {
+        const base = { color: 'text-gray-400', bg: 'bg-gray-800/50', icon: Shield, borderClass: 'border-gray-500', selectBg: 'bg-gray-700/90', penalty: 0 };
+        switch (risk) {
+            case 'High': return { 
+                ...base, 
+                color: 'text-red-400', 
+                bg: 'bg-red-900/40',
+                icon: AlertTriangle, 
+                borderClass: 'border-red-500', 
+                selectBg: 'bg-red-700/90',
+                penalty: -2
+            };
+            case 'Medium': return { 
+                ...base, 
+                color: 'text-orange-400', 
+                bg: 'bg-orange-900/40', 
+                icon: Shield, 
+                borderClass: 'border-orange-500', 
+                selectBg: 'bg-orange-700/90',
+                penalty: -1
+            };
+            case 'Low': return { 
+                ...base, 
+                color: 'text-amber-400', 
+                bg: 'bg-amber-900/40', 
+                icon: Shield, 
+                borderClass: 'border-amber-500', 
+                selectBg: 'bg-amber-700/90',
+                penalty: 0
+            };
+            default: return base;
+        }
+    };
+
+    // Helper to map the final 1-10 score to an actionable Priority Level (Warm color scheme)
+    const getPriorityLabel = (score) => {
+        if (score >= 9) return { label: t('p0'), color: "text-red-400", bg: "bg-red-900/40" };
+        if (score >= 7) return { label: t('p1'), color: "text-orange-400", bg: "bg-orange-900/40" };
+        if (score >= 5) return { label: t('p2'), color: "text-amber-400", bg: "bg-amber-900/40" };
+        return { label: t('p3'), color: "text-gray-400", bg: "bg-gray-900/40" };
+    };
+
+    // Loading State
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-950 text-amber-500">
+                <svg className="animate-spin -ml-1 mr-3 h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p>Establishing connection to Project Tracker...</p>
+            </div>
+        );
+    }
+
+    if (!projectData) {
+         return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-950 text-red-500">
+                <p>Error: Could not load or initialize project data.</p>
+            </div>
+        );
+    }
+
+    // Destructure properties and calculate adjusted score
+    const { color: riskColor, bg: riskBg, icon: RiskIcon, borderClass, selectBg, penalty } = getRiskStyles(projectData.riskProfile);
+    
+    const baseAlignment = projectData.strategicAlignment || 0;
+    const adjustedAlignmentScore = Math.max(
+        1,
+        Math.min(
+            10,
+            baseAlignment + penalty
+        )
+    );
+
+    const { label: priorityLabel, color: priorityColor, bg: priorityBg } = getPriorityLabel(adjustedAlignmentScore);
+
+    return (
+        <div className="min-h-screen bg-gray-950 text-gray-100 p-4 md:p-10" dir={direction}>
+            
+            {/* Language Switcher */}
+            <div className="flex justify-end mb-6">
+                <div className="bg-gray-900 p-2 rounded-xl flex items-center shadow-lg border border-gray-800">
+                    <Globe className="w-5 h-5 text-gray-400 mr-2 rtl:ml-2 rtl:mr-0"/>
+                    <select
+                        value={lang}
+                        onChange={(e) => setLang(e.target.value)}
+                        className="bg-transparent text-sm font-semibold text-white focus:outline-none cursor-pointer"
+                    >
+                        <option value="en">English (EN)</option>
+                        <option value="fa">فارسی (FA)</option>
+                        <option value="ar">العربية (AR)</option>
+                    </select>
+                </div>
+            </div>
+
+            {/* Header and Project Summary */}
+            <header className="mb-10 border-b border-gray-700 pb-6">
+                <h1 className="text-4xl font-extrabold text-amber-400 flex items-center">
+                    <Layers className="w-8 h-8 mr-3 rtl:ml-3 rtl:mr-0" />
+                    {t('title')}
+                </h1>
+                <p className="text-md text-gray-400 mt-2 max-w-4xl">
+                    <span className="font-bold text-gray-300">{t('status')}:</span> {t('summary')}
+                </p>
+                <div className="text-xs text-gray-500 mt-3 flex flex-wrap">
+                    <span className="mr-4 rtl:ml-4 rtl:mr-0">{t('appId')}: <code className="bg-gray-800 p-1 rounded text-orange-300 break-all">{appId}</code></span>
+                    <span>{t('userId')}: <code className="bg-gray-800 p-1 rounded text-orange-300 break-all">{userId || 'N/A'}</code></span>
+                </div>
+            </header>
+
+            <div className="space-y-12">
+                
+                {/* 1. Strategic Value & Risk Assessment (Interactive Section) */}
+                <div className="grid md:grid-cols-2 gap-6">
+                    {/* LEFT CARD: INPUTS (Base Alignment & Risk Profile) */}
+                    <div className="p-6 bg-gray-900 rounded-xl shadow-lg border-t-4 border-amber-500 transition duration-200 hover:bg-gray-800/50 space-y-6">
+                        
+                        {/* Base Alignment Slider Input */}
+                        <div className="border border-gray-800 rounded-lg p-4">
+                            <p className="text-sm font-semibold uppercase text-gray-400 flex items-center mb-4">
+                                <Zap className="w-4 h-4 mr-2 text-amber-400 rtl:ml-2 rtl:mr-0" />
+                                {t('baseAlignmentLabel')}
+                            </p>
+                            <div className="flex flex-col space-y-3">
+                                <p className="text-5xl font-extrabold text-amber-400 text-center">
+                                    {baseAlignment}<span className="text-xl font-normal text-gray-500">/10</span>
+                                </p>
+                                <input
+                                    type="range"
+                                    value={baseAlignment}
+                                    onChange={(e) => updateProjectDataField('strategicAlignment', parseInt(e.target.value))}
+                                    min="1"
+                                    max="10"
+                                    step="1"
+                                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Risk Profile Dropdown */}
+                        <div className="border border-gray-800 rounded-lg p-4">
+                            <p className="text-sm font-semibold uppercase text-gray-400 flex items-center mb-2">
+                                <RiskIcon className={`w-4 h-4 mr-2 rtl:ml-2 rtl:mr-0 ${riskColor}`} />
+                                {t('riskProfileLabel')}
+                            </p>
+                            <div className="flex justify-between items-center">
+                                <p className={`text-xl font-bold ${riskColor}`}>{t(projectData.riskProfile.toLowerCase())}</p>
+                                <select
+                                    value={projectData.riskProfile}
+                                    onChange={(e) => updateProjectDataField('riskProfile', e.target.value)}
+                                    className={`p-2 text-sm font-bold rounded-lg text-white transition duration-150 ${selectBg} border border-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500`}
+                                >
+                                    <option value="Low" className="bg-amber-700">{t('low')} (0 {t('penalty')})</option>
+                                    <option value="Medium" className="bg-orange-700">{t('medium')} (-1 {t('penalty')})</option>
+                                    <option value="High" className="bg-red-700">{t('high')} (-2 {t('penalty')})</option>
+                                </select>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    {/* RIGHT CARD: SIMPLIFIED SCORECARD OUTPUT */}
+                    <div className={`p-6 rounded-xl shadow-lg border-t-4 ${riskBg} ${borderClass} transition duration-200 hover:bg-gray-800/50`}>
+                        <h3 className="text-xl font-bold text-gray-200 border-b border-gray-700 pb-3 mb-4 flex items-center">
+                            <ClipboardCheck className="w-5 h-5 mr-2 text-amber-400 rtl:ml-2 rtl:mr-0" />
+                            {t('scorecardTitle')}
+                        </h3>
+                        
+                        {/* Highlighted Final Output */}
+                        <div className={`text-center p-6 rounded-lg ${priorityBg} border-2 ${priorityColor.replace('text-', 'border-')} shadow-2xl mb-6`}>
+                            <p className="text-sm uppercase font-semibold text-gray-300">{t('finalScore')}</p>
+                            <p className={`text-7xl font-extrabold ${priorityColor} mt-1`}>{adjustedAlignmentScore}</p>
+                            <p className={`text-xl font-semibold mt-4 px-3 py-1 rounded-full ${priorityColor} ${priorityBg.replace('/40', '/60')}`}>{priorityLabel}</p>
+                        </div>
+
+                        {/* Calculation Summary */}
+                        <div className="bg-gray-950 p-4 rounded-lg border border-gray-800">
+                            <p className="text-sm font-semibold text-gray-300 mb-2 flex items-center">
+                                <Scale className="w-4 h-4 mr-2 text-amber-400 rtl:ml-2 rtl:mr-0"/>
+                                {t('scoreBreakdown')}
+                            </p>
+                            <div className="flex justify-between text-lg py-1 border-b border-gray-800">
+                                <span className="text-gray-400">{t('baseScore')}:</span>
+                                <span className="font-bold text-amber-400">{baseAlignment}</span>
+                            </div>
+                            <div className="flex justify-between text-lg py-1">
+                                <span className="text-gray-400">{t('riskModifier')} ({t(projectData.riskProfile.toLowerCase())}):</span>
+                                <span className="font-bold text-red-400">{penalty > 0 ? `-${Math.abs(penalty)}` : '0'}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                {/* 2. Value Estimator Section */}
+                <ValueEstimator updateProjectData={updateProjectDataField} t={t} />
+
+                {/* 3. Key Performance Indicators (KPIs) */}
+                <div className="space-y-4">
+                    <h2 className="text-3xl font-bold text-gray-200">{t('kpiTitle')}</h2>
+                    <div className="grid md:grid-cols-2 gap-6">
+                        <div className="p-6 bg-gray-900 rounded-xl shadow-lg border-t-4 border-amber-500 transition duration-200 hover:bg-gray-800/50">
+                            <p className="text-sm font-semibold uppercase text-gray-400">{t('primaryKpi')}</p>
+                            {/* Dynamic KPI Goal */}
+                            <p className="text-xl font-bold text-green-400 mt-2">{t(projectData.kpis.primary.key)}</p>
+                            <p className="text-sm text-gray-500 mt-2">{t('status')}: <span className="font-medium text-green-300">{t(projectData.kpis.primary.status)}</span></p>
+                        </div>
+                        <div className="p-6 bg-gray-900 rounded-xl shadow-lg border-t-4 border-amber-500 transition duration-200 hover:bg-gray-800/50">
+                            <p className="text-sm font-semibold uppercase text-gray-400">{t('secondaryKpi')}</p>
+                            {/* Dynamic KPI Goal */}
+                            <p className="text-xl font-bold text-amber-400 mt-2">{t(projectData.kpis.secondary.key)}</p>
+                            <p className="text-sm text-gray-500 mt-2">{t('status')}: <span className="font-medium text-amber-300">{t(projectData.kpis.secondary.status)}</span></p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 4. Project Execution Phases (Tracker) */}
+                <div className="space-y-4">
+                    <h2 className="text-3xl font-bold text-gray-200">{t('roadmapTitle')}</h2>
+                    <div className="space-y-4">
+                        {projectData.phases.map((phase, phaseIndex) => (
+                            <div key={phaseIndex} className="p-6 bg-gray-900 rounded-xl shadow-lg border border-gray-800 transition duration-300 hover:shadow-2xl hover:bg-gray-800/70">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3">
+                                    {/* Dynamic Phase Title */}
+                                    <h3 className="text-xl font-semibold text-white mb-2 sm:mb-0">{t(phase.key)}</h3>
+                                    <select
+                                        value={phase.status}
+                                        onChange={(e) => updatePhaseStatus(phaseIndex, e.target.value)}
+                                        className={`p-2 text-sm font-bold rounded-lg text-white transition duration-150 ${getStatusColor(phase.status)} border border-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500`}
+                                    >
+                                        <option value="Pending" className="bg-gray-700">{t('pending')}</option>
+                                        <option value="In Progress" className="bg-amber-700">{t('inProgress')}</option>
+                                        <option value="Completed" className="bg-green-700">{t('completed')}</option>
+                                    </select>
+                                </div>
+                                <div className="border-t border-gray-800 pt-3">
+                                    <p className="text-sm font-medium text-gray-400 mb-2">{t('keyTasks')}</p>
+                                    <ul className={`list-disc list-inside space-y-1 text-gray-300 ${isRtl ? 'pr-4' : 'pl-4'}`}>
+                                        {/* Dynamic Task List */}
+                                        {phase.task_keys.map((taskKey, taskIndex) => (
+                                            <li key={taskIndex} className="text-sm">{t(taskKey)}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+            </div>
+
+            <footer className="mt-16 text-center text-gray-600 text-sm border-t border-gray-800 pt-8">
+                <p>{t('footer')}</p>
+            </footer>
+        </div>
+    );
+};
+
+export default App;
