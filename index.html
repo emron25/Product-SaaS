@@ -392,8 +392,10 @@ const App = () => {
             if (user) {
                 setUserId(user.uid);
             } else {
+                // Generates a temporary ID if no user is signed in
                 setUserId(crypto.randomUUID()); 
             }
+            // IMPORTANT: Set AuthReady to true ONLY after the auth state has settled and userId is defined
             setIsAuthReady(true);
         });
 
@@ -404,7 +406,14 @@ const App = () => {
 
     // --- Real-time Project Data Fetching & Initialization ---
     useEffect(() => {
-        if (!isAuthReady || !db) return;
+        // FIX: Ensure isAuthReady is TRUE before proceeding.
+        // We removed the explicit dependency on 'userId' from the initial check 
+        // to prevent race conditions, relying only on the 'isAuthReady' flag
+        // set by onAuthStateChanged.
+        if (!isAuthReady || !db) {
+            console.log("Waiting for auth to be ready...");
+            return;
+        }
 
         const projectDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'saas_tracker', PROJECT_ID);
         
@@ -412,18 +421,22 @@ const App = () => {
             if (docSnap.exists()) {
                 setProjectData(docSnap.data());
             } else {
-                // IMPORTANT: Use the structure with 'key' for phases when initializing
+                // Initializing the document if it doesn't exist.
+                // We use the current 'userId' state here, which is guaranteed to be set if isAuthReady is true.
                 await setDoc(projectDocRef, { ...INITIAL_PROJECT_DATA, ownerId: userId, createdAt: serverTimestamp() });
                 setProjectData(INITIAL_PROJECT_DATA);
             }
             setLoading(false);
         }, (error) => {
             console.error("Error fetching project data:", error);
-            setLoading(false);
+            // Log the error but stop loading so the UI can render
+            setLoading(false); 
         });
 
+        // The dependency array is narrowed to prevent unnecessary re-subscriptions 
+        // while still ensuring it runs when auth becomes ready.
         return () => unsubscribe();
-    }, [isAuthReady, db, appId, userId]);
+    }, [isAuthReady, db, appId]); // Removed userId from dependency array for better stability
 
 
     // Function to update phase status
@@ -545,12 +558,17 @@ const App = () => {
     const { label: priorityLabel, color: priorityColor, bg: priorityBg } = getPriorityLabel(adjustedAlignmentScore);
 
     return (
-        <div className="min-h-screen bg-gray-950 text-gray-100 p-4 md:p-10" dir={direction}>
+        // Applied Noto Sans as the default font style
+        <div 
+            className="min-h-screen bg-gray-950 text-gray-100 p-4 md:p-10" 
+            dir={direction}
+            style={{ fontFamily: "'Noto Sans', sans-serif" }}
+        >
             
             {/* Language Switcher */}
             <div className="flex justify-end mb-6">
                 <div className="bg-gray-900 p-2 rounded-xl flex items-center shadow-lg border border-gray-800">
-                    <Globe className="w-5 h-5 text-gray-400 mr-2 rtl:ml-2 rtl:mr-0"/>
+                    <Globe className="w-5 h-5 mr-2 text-gray-400 rtl:ml-2 rtl:mr-0"/>
                     <select
                         value={lang}
                         onChange={(e) => setLang(e.target.value)}
